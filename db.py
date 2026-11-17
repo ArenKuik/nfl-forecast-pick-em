@@ -25,6 +25,24 @@ def init_db(database_url):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS games (
+                id          TEXT PRIMARY KEY,
+                season      INTEGER NOT NULL,
+                week        INTEGER,
+                home_team   TEXT NOT NULL,
+                away_team   TEXT NOT NULL,
+                home_name   TEXT NOT NULL,
+                away_name   TEXT NOT NULL,
+                kickoff     TIMESTAMPTZ NOT NULL,
+                status      TEXT,
+                home_score  INTEGER,
+                away_score  INTEGER,
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
 
 
 def _connect():
@@ -58,3 +76,33 @@ def get_user_by_id(user_id):
             "SELECT id, username FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
+
+
+def upsert_games(games):
+    """Insert or update games by id in one transaction. Returns how many were saved."""
+    if not games:
+        return 0
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO games (id, season, week, home_team, away_team, home_name,
+                                   away_name, kickoff, status, home_score, away_score, updated_at)
+                VALUES (%(id)s, %(season)s, %(week)s, %(home_team)s, %(away_team)s, %(home_name)s,
+                        %(away_name)s, %(kickoff)s, %(status)s, %(home_score)s, %(away_score)s, now())
+                ON CONFLICT (id) DO UPDATE SET
+                    season     = EXCLUDED.season,
+                    week       = EXCLUDED.week,
+                    home_team  = EXCLUDED.home_team,
+                    away_team  = EXCLUDED.away_team,
+                    home_name  = EXCLUDED.home_name,
+                    away_name  = EXCLUDED.away_name,
+                    kickoff    = EXCLUDED.kickoff,
+                    status     = EXCLUDED.status,
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    updated_at = now()
+                """,
+                games,
+            )
+    return len(games)

@@ -5,6 +5,10 @@
     <p>You are logged in as <strong>{{ current_user.username }}</strong>.</p>
     {% if is_admin %}
       <p>You are the administrator.</p>
+      <form method="post" action="{{ url_for('admin_sync') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="primary">Sync games</button>
+      </form>
     {% endif %}
   {% else %}
     <p>You are not logged in.

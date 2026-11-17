@@ -19,12 +19,13 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import nfl_api
 
 # On the laptop the settings come from .env; on Cloud Run they are real
 # environment variables (load_dotenv never overrides those).
 load_dotenv()
 
-REQUIRED_SETTINGS = ("DATABASE_URL", "SECRET_KEY", "SITE_NAME", "ADMIN_USERNAME")
+REQUIRED_SETTINGS = ("DATABASE_URL", "SECRET_KEY", "SITE_NAME", "ADMIN_USERNAME", "NFL_API_KEY")
 _missing = [name for name in REQUIRED_SETTINGS if not os.environ.get(name)]
 if _missing:
     sys.exit(f"Missing required environment variable(s): {', '.join(_missing)}")
@@ -33,6 +34,7 @@ SITE_NAME = os.environ["SITE_NAME"]
 ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
 MIN_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 50
+SYNC_SEASON = 2026
 
 # Cloud Run sets K_SERVICE in every container it runs.
 ON_CLOUD_RUN = "K_SERVICE" in os.environ
@@ -78,8 +80,13 @@ def _template_globals():
         "site_name": SITE_NAME,
         "csrf_token": _csrf_token,
         "current_user": g.get("user"),
-        "is_admin": bool(g.get("user")) and g.user["username"] == ADMIN_USERNAME,
+        "is_admin": _is_admin(),
     }
+
+
+def _is_admin():
+    user = g.get("user")
+    return bool(user) and user["username"] == ADMIN_USERNAME
 
 
 def _log_in(user_id):
@@ -151,4 +158,22 @@ def login():
 def logout():
     session.clear()
     flash("You have been logged out.")
+    return redirect(url_for("home"))
+
+
+@app.post("/admin/sync")
+def admin_sync():
+    if not _is_admin():
+        abort(403)
+
+    try:
+        games = nfl_api.fetch_season_games(SYNC_SEASON)
+    except nfl_api.NFLApiError as exc:
+        flash(f"Sync failed: {exc}", "error")
+        return redirect(url_for("home"))
+
+    # The same game could appear on two pages if the schedule shifts mid-sync.
+    unique_games = list({game["id"]: game for game in games}.values())
+    saved = db.upsert_games(unique_games)
+    flash(f"Synced {SYNC_SEASON} season: {saved} games saved.")
     return redirect(url_for("home"))
