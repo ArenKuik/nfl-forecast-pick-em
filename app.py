@@ -3,6 +3,7 @@
 import os
 import secrets
 import sys
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from flask import (
@@ -35,6 +36,9 @@ ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
 MIN_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 50
 SYNC_SEASON = 2026
+FIRST_WEEK = 1
+LAST_WEEK = 18
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 # Cloud Run sets K_SERVICE in every container it runs.
 ON_CLOUD_RUN = "K_SERVICE" in os.environ
@@ -177,3 +181,50 @@ def admin_sync():
     saved = db.upsert_games(unique_games)
     flash(f"Synced {SYNC_SEASON} season: {saved} games saved.")
     return redirect(url_for("home"))
+
+
+def _format_kickoff(kickoff):
+    """UTC timestamp -> Pacific time like 'Sun Nov 22, 10:00 AM'."""
+    local = kickoff.astimezone(PACIFIC)
+    hour = local.hour % 12 or 12
+    return f"{local:%a %b} {local.day}, {hour}:{local:%M %p}"
+
+
+def _is_final(status):
+    return (status or "").lower().startswith("final")
+
+
+def _result_text(game):
+    """Final score when the game is over, otherwise its status."""
+    if _is_final(game["status"]) and game["home_score"] is not None and game["away_score"] is not None:
+        return f"Final: {game['away_team']} {game['away_score']}, {game['home_team']} {game['home_score']}"
+    status = game["status"] or "Scheduled"
+    return status[:1].upper() + status[1:]
+
+
+@app.get("/week")
+def current_week():
+    week = db.get_current_week(SYNC_SEASON, default_week=LAST_WEEK)
+    return redirect(url_for("week_games", week=week))
+
+
+@app.get("/week/<int:week>")
+def week_games(week):
+    if not FIRST_WEEK <= week <= LAST_WEEK:
+        abort(404)
+
+    games = [
+        {
+            "kickoff": _format_kickoff(game["kickoff"]),
+            "matchup": f"{game['away_name']} @ {game['home_name']}",
+            "result": _result_text(game),
+        }
+        for game in db.get_week_games(SYNC_SEASON, week)
+    ]
+    return render_template(
+        "week.html",
+        week=week,
+        games=games,
+        prev_week=week - 1 if week > FIRST_WEEK else None,
+        next_week=week + 1 if week < LAST_WEEK else None,
+    )

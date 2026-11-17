@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Week {{ week }} · {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Week {{ week }}</h1>
+  {% if games %}
+    <ul class="games">
+      {% for game in games %}
+        <li>
+          <div class="kickoff">{{ game.kickoff }} PT</div>
+          <div>{{ game.matchup }}</div>
+          <div class="result">{{ game.result }}</div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No games found for this week.</p>
+  {% endif %}
+  <nav class="week-nav">
+    <span>{% if prev_week %}<a href="{{ url_for('week_games', week=prev_week) }}">← Week {{ prev_week }}</a>{% endif %}</span>
+    <span>{% if next_week %}<a href="{{ url_for('week_games', week=next_week) }}">Week {{ next_week }} →</a>{% endif %}</span>
+  </nav>
+{% endblock %}

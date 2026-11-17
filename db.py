@@ -106,3 +106,32 @@ def upsert_games(games):
                 games,
             )
     return len(games)
+
+
+# A game counts as final when its status starts with "final" (e.g. "Final", "final/OT").
+_IS_FINAL = "lower(coalesce(status, '')) LIKE 'final%%'"
+
+
+def get_week_games(season, week):
+    """Return the games of one week, earliest kickoff first."""
+    with _connect() as conn:
+        return conn.execute(
+            """
+            SELECT id, home_team, away_team, home_name, away_name, kickoff,
+                   status, home_score, away_score
+            FROM games
+            WHERE season = %s AND week = %s
+            ORDER BY kickoff, id
+            """,
+            (season, week),
+        ).fetchall()
+
+
+def get_current_week(season, default_week):
+    """Return the earliest week with a game that is not final, or default_week if none."""
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT min(week) AS week FROM games WHERE season = %s AND week IS NOT NULL AND NOT {_IS_FINAL}",
+            (season,),
+        ).fetchone()
+    return row["week"] if row["week"] is not None else default_week

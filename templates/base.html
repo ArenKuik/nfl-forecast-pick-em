@@ -13,12 +13,17 @@
     .flash.error { background: #fbeaea; }
     label { display: block; margin-top: .75rem; }
     input { font: inherit; padding: .3rem; width: 100%; max-width: 20rem; box-sizing: border-box; }
+    .games { list-style: none; padding: 0; }
+    .games li { padding: .5rem 0; border-bottom: 1px solid #eee; }
+    .games .kickoff, .games .result { color: #555; font-size: .9rem; }
+    .week-nav { justify-content: space-between; margin-top: 1rem; border-bottom: none; padding-bottom: 0; }
     button[type=submit].primary { margin-top: 1rem; font: inherit; padding: .4rem 1rem; }
   </style>
 </head>
 <body>
   <nav>
     <a href="{{ url_for('home') }}">Home</a>
+    <a href="{{ url_for('current_week') }}">This week’s games</a>
     {% if current_user %}
       <form method="post" action="{{ url_for('logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
