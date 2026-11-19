@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
   <h1>{{ site_name }}</h1>
+  <p>Forecast every NFL game. Confidence pays, if you're right.</p>
   {% if current_user %}
     <p>You are logged in as <strong>{{ current_user.username }}</strong>.</p>
     {% if is_admin %}
