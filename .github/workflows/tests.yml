@@ -50,3 +50,27 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        # No --set-env-vars / --set-secrets: the service keeps its existing settings and secret bindings.
+        run: >-
+          gcloud run deploy nfl-forecast
+          --source .
+          --project nfl-forecast-pick-em
+          --region us-west1
+          --allow-unauthenticated
+          --quiet
