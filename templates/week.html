@@ -2,19 +2,55 @@
 {% block title %}Week {{ week }} · {{ site_name }}{% endblock %}
 {% block content %}
   <h1>Week {{ week }}</h1>
+
+  {% if errors %}
+    <div class="flash error">
+      <p>Nothing was saved. Please fix these forecasts:</p>
+      <ul>
+        {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if not current_user %}
+    <p><a href="{{ url_for('login') }}">Log in</a> to make your forecasts.</p>
+  {% endif %}
+
   {% if games %}
+    {% if current_user %}
+    <form method="post" action="{{ url_for('save_forecasts', week=week) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% endif %}
     <ul class="games">
       {% for game in games %}
         <li>
           <div class="kickoff">{{ game.kickoff }} PT</div>
           <div>{{ game.matchup }}</div>
           <div class="result">{{ game.result }}</div>
+          {% if current_user %}
+            {% if game.open %}
+              <label class="forecast">Chance {{ game.home_name }} win (%)
+                <input type="number" name="{{ game.field }}" min="0" max="100" step="1"
+                       value="{{ game.input_value }}" inputmode="numeric">
+              </label>
+              {% if game.error %}<div class="field-error">{{ game.error }}</div>{% endif %}
+            {% elif game.forecast is not none %}
+              <div class="forecast">Your forecast: {{ game.forecast }}% chance {{ game.home_name }} win</div>
+            {% else %}
+              <div class="forecast">No forecast</div>
+            {% endif %}
+          {% endif %}
         </li>
       {% endfor %}
     </ul>
+    {% if current_user %}
+      {% if any_open %}<button type="submit" class="primary">Save forecasts</button>{% endif %}
+    </form>
+    {% endif %}
   {% else %}
     <p>No games found for this week.</p>
   {% endif %}
+
   <nav class="week-nav">
     <span>{% if prev_week %}<a href="{{ url_for('week_games', week=prev_week) }}">← Week {{ prev_week }}</a>{% endif %}</span>
     <span>{% if next_week %}<a href="{{ url_for('week_games', week=next_week) }}">Week {{ next_week }} →</a>{% endif %}</span>

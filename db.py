@@ -43,6 +43,18 @@ def init_db(database_url):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forecasts (
+                user_id     BIGINT NOT NULL,
+                game_id     TEXT NOT NULL,
+                probability INTEGER NOT NULL CHECK (probability BETWEEN 0 AND 100),
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (user_id, game_id)
+            )
+            """
+        )
 
 
 def _connect():
@@ -135,3 +147,55 @@ def get_current_week(season, default_week):
             (season,),
         ).fetchone()
     return row["week"] if row["week"] is not None else default_week
+
+
+class ForecastClosed(Exception):
+    """Raised when saving a forecast for a game that is missing or has kicked off."""
+
+    def __init__(self, game_id):
+        super().__init__(game_id)
+        self.game_id = game_id
+
+
+def get_games_by_ids(game_ids):
+    """Return {game_id: game} for the given ids that exist."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, home_name, away_name, kickoff FROM games WHERE id = ANY(%s)",
+            (list(game_ids),),
+        ).fetchall()
+    return {row["id"]: row for row in rows}
+
+
+def get_user_forecasts(user_id, game_ids):
+    """Return {game_id: probability} for one user's forecasts on the given games."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT game_id, probability FROM forecasts WHERE user_id = %s AND game_id = ANY(%s)",
+            (user_id, list(game_ids)),
+        ).fetchall()
+    return {row["game_id"]: row["probability"] for row in rows}
+
+
+def save_forecasts(user_id, forecasts):
+    """Upsert {game_id: probability} for one user, all or nothing.
+
+    The kickoff check is repeated inside the insert, so a game that kicks off
+    between validation and saving is still refused (ForecastClosed) and the
+    whole transaction is rolled back.
+    """
+    with _connect() as conn:
+        for game_id, probability in forecasts.items():
+            cur = conn.execute(
+                """
+                INSERT INTO forecasts (user_id, game_id, probability)
+                SELECT %s, id, %s FROM games WHERE id = %s AND kickoff > now()
+                ON CONFLICT (user_id, game_id) DO UPDATE SET
+                    probability = EXCLUDED.probability,
+                    updated_at  = now()
+                """,
+                (user_id, probability, game_id),
+            )
+            if cur.rowcount != 1:
+                raise ForecastClosed(game_id)
+    return len(forecasts)
