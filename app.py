@@ -1,8 +1,10 @@
-"""NFL forecasting game — accounts only (register, log in, log out)."""
+"""NFL forecasting game: accounts, weekly games and forecasts."""
 
 import os
+import re
 import secrets
 import sys
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -208,23 +210,106 @@ def current_week():
     return redirect(url_for("week_games", week=week))
 
 
-@app.get("/week/<int:week>")
-def week_games(week):
+FORECAST_FIELD_PREFIX = "forecast-"
+_WHOLE_NUMBER = re.compile(r"\d{1,3}")
+
+
+def _check_week(week):
     if not FIRST_WEEK <= week <= LAST_WEEK:
         abort(404)
 
-    games = [
-        {
-            "kickoff": _format_kickoff(game["kickoff"]),
-            "matchup": f"{game['away_name']} @ {game['home_name']}",
-            "result": _result_text(game),
-        }
-        for game in db.get_week_games(SYNC_SEASON, week)
-    ]
+
+def _render_week(week, submitted=None, errors=None, status=200):
+    """Render a week's games; logged-in users also get their own forecasts.
+
+    `submitted` and `errors` ({game_id: text}) are used to redisplay a refused form.
+    """
+    submitted = submitted or {}
+    errors = errors or {}
+    rows = db.get_week_games(SYNC_SEASON, week)
+    now = datetime.now(timezone.utc)
+    own = db.get_user_forecasts(g.user["id"], [row["id"] for row in rows]) if g.user else {}
+
+    games = []
+    for row in rows:
+        saved = own.get(row["id"])
+        games.append({
+            "id": row["id"],
+            "field": FORECAST_FIELD_PREFIX + row["id"],
+            "home_name": row["home_name"],
+            "kickoff": _format_kickoff(row["kickoff"]),
+            "matchup": f"{row['away_name']} @ {row['home_name']}",
+            "result": _result_text(row),
+            "open": row["kickoff"] > now,
+            "forecast": saved,
+            "input_value": submitted.get(row["id"], "" if saved is None else saved),
+            "error": errors.get(row["id"]),
+        })
+
     return render_template(
         "week.html",
         week=week,
         games=games,
+        any_open=any(game["open"] for game in games),
+        errors=list(errors.values()),
         prev_week=week - 1 if week > FIRST_WEEK else None,
         next_week=week + 1 if week < LAST_WEEK else None,
-    )
+    ), status
+
+
+@app.get("/week/<int:week>")
+def week_games(week):
+    _check_week(week)
+    return _render_week(week)
+
+
+@app.post("/week/<int:week>/forecasts")
+def save_forecasts(week):
+    _check_week(week)
+    if not g.user:
+        flash("Log in to save forecasts.", "error")
+        return redirect(url_for("login"))
+
+    # Every posted value is checked here, whatever the page showed.
+    submitted = {
+        key[len(FORECAST_FIELD_PREFIX):]: value.strip()
+        for key, value in request.form.items()
+        if key.startswith(FORECAST_FIELD_PREFIX)
+    }
+    submitted = {game_id: value for game_id, value in submitted.items() if value != ""}
+
+    games = db.get_games_by_ids(submitted.keys())
+    now = datetime.now(timezone.utc)
+    errors = {}
+    forecasts = {}
+    for game_id, value in submitted.items():
+        game = games.get(game_id)
+        if game is None:
+            errors[game_id] = f"Game {game_id} does not exist."
+            continue
+        matchup = f"{game['away_name']} @ {game['home_name']}"
+        if game["kickoff"] <= now:
+            errors[game_id] = f"{matchup}: this game has already kicked off, so forecasts are closed."
+        elif not _WHOLE_NUMBER.fullmatch(value) or int(value) > 100:
+            errors[game_id] = f"{matchup}: the forecast must be a whole number from 0 to 100."
+        else:
+            forecasts[game_id] = int(value)
+
+    if not errors and forecasts:
+        try:
+            db.save_forecasts(g.user["id"], forecasts)
+        except db.ForecastClosed as exc:
+            game = games[exc.game_id]
+            errors[exc.game_id] = (
+                f"{game['away_name']} @ {game['home_name']}: "
+                "this game has already kicked off, so forecasts are closed."
+            )
+
+    if errors:
+        return _render_week(week, submitted=submitted, errors=errors, status=400)
+
+    if forecasts:
+        flash(f"Saved {len(forecasts)} forecast{'' if len(forecasts) == 1 else 's'}.")
+    else:
+        flash("Nothing to save: every forecast was empty.")
+    return redirect(url_for("week_games", week=week))
