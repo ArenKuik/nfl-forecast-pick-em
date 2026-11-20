@@ -199,3 +199,21 @@ def save_forecasts(user_id, forecasts):
             if cur.rowcount != 1:
                 raise ForecastClosed(game_id)
     return len(forecasts)
+
+
+def get_forecast_results(season, week=None):
+    """Return (username, probability, home_score, away_score, status) for every
+    forecast in a season, or in one week of it."""
+    query = """
+        SELECT u.username, f.probability, g.home_score, g.away_score, g.status
+        FROM forecasts f
+        JOIN users u ON u.id = f.user_id
+        JOIN games g ON g.id = f.game_id
+        WHERE g.season = %s
+    """
+    params = [season]
+    if week is not None:
+        query += " AND g.week = %s"
+        params.append(week)
+    with psycopg.connect(_database_url) as conn:  # plain tuples, as scoring.leaderboard expects
+        return conn.execute(query, params).fetchall()

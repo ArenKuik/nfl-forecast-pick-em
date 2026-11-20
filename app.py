@@ -23,6 +23,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 import nfl_api
+import scoring
 
 # On the laptop the settings come from .env; on Cloud Run they are real
 # environment variables (load_dotenv never overrides those).
@@ -193,7 +194,7 @@ def _format_kickoff(kickoff):
 
 
 def _is_final(status):
-    return (status or "").lower().startswith("final")
+    return scoring.is_final(status)
 
 
 def _result_text(game):
@@ -242,6 +243,7 @@ def _render_week(week, submitted=None, errors=None, status=200):
             "result": _result_text(row),
             "open": row["kickoff"] > now,
             "forecast": saved,
+            "points": _points_for(row, saved),
             "input_value": submitted.get(row["id"], "" if saved is None else saved),
             "error": errors.get(row["id"]),
         })
@@ -255,6 +257,23 @@ def _render_week(week, submitted=None, errors=None, status=200):
         prev_week=week - 1 if week > FIRST_WEEK else None,
         next_week=week + 1 if week < LAST_WEEK else None,
     ), status
+
+
+def _points_for(game, probability):
+    """Points earned on a final game, or None if there is nothing to score yet."""
+    if probability is None or not _is_final(game["status"]):
+        return None
+    if game["home_score"] is None or game["away_score"] is None:
+        return None
+    return scoring.points(probability, game["home_score"], game["away_score"])
+
+
+def _one_decimal(value):
+    text = f"{value:.1f}"
+    return "0.0" if text == "-0.0" else text
+
+
+app.jinja_env.filters["one_decimal"] = _one_decimal
 
 
 @app.get("/week/<int:week>")
@@ -313,3 +332,21 @@ def save_forecasts(week):
     else:
         flash("Nothing to save: every forecast was empty.")
     return redirect(url_for("week_games", week=week))
+
+
+@app.get("/leaderboard")
+def leaderboard():
+    week = None
+    if request.args.get("week"):
+        week = request.args.get("week", type=int)
+        if week is None:
+            abort(404)
+        _check_week(week)
+
+    entries = scoring.leaderboard(db.get_forecast_results(SYNC_SEASON, week))
+    return render_template(
+        "leaderboard.html",
+        week=week,
+        weeks=range(FIRST_WEEK, LAST_WEEK + 1),
+        entries=entries,
+    )
