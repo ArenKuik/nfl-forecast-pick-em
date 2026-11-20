@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard · {{ site_name }}{% endblock %}
+{% block content %}
+  <h1>Leaderboard: {{ "Week %d" % week if week else "Season" }}</h1>
+
+  <p class="week-links">
+    {% if week %}<a href="{{ url_for('leaderboard') }}">Season</a>{% else %}<strong>Season</strong>{% endif %}
+    {% for n in weeks %}
+      {% if n == week %}<strong>Week {{ n }}</strong>{% else %}<a href="{{ url_for('leaderboard', week=n) }}">Week {{ n }}</a>{% endif %}
+    {% endfor %}
+  </p>
+
+  {% if entries %}
+    <table class="leaderboard">
+      <thead>
+        <tr><th class="num">#</th><th>Player</th><th class="num">Points</th><th class="num">Games</th><th class="num">Average</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td class="num">{{ loop.index }}</td>
+            <td>{{ entry.username }}</td>
+            <td class="num">{{ entry.total | one_decimal }}</td>
+            <td class="num">{{ entry.games }}</td>
+            <td class="num">{{ entry.average | one_decimal }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No forecasts have been scored {{ "this week" if week else "this season" }} yet.</p>
+  {% endif %}
+{% endblock %}

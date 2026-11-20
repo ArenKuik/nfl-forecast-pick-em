@@ -35,7 +35,12 @@
               </label>
               {% if game.error %}<div class="field-error">{{ game.error }}</div>{% endif %}
             {% elif game.forecast is not none %}
-              <div class="forecast">Your forecast: {{ game.forecast }}% chance {{ game.home_name }} win</div>
+              <div class="forecast">Your forecast: {{ game.forecast }}% chance {{ game.home_name }} win
+                {%- if game.points is not none %}
+                  <span class="points {{ 'positive' if game.points > 0 else 'negative' if game.points < 0 else '' }}">
+                    {{ '+' if game.points > 0 }}{{ game.points | one_decimal }} points</span>
+                {%- endif %}
+              </div>
             {% else %}
               <div class="forecast">No forecast</div>
             {% endif %}
